@@ -11,12 +11,18 @@ $ bambucam <device-ip> <device-id> <passcode> <path/to/output.jpg>
 
 ## Build instructions
 
-Assuming you have [Bambu Studio] installed and downloaded all plugins, copy the
-`libBambuSource.so` prebuilt to this working directory, then build:
+Assumes you have [Bambu Studio] installed and ran at least once to download the
+expected plugins.
 
 ```
-$ cp ~/.config/BambuStudioInternal/plugins/libBambuSource.so ./
 $ make -j
+```
+
+Use `PLUGIN_PATH` to specify a different path if the plugins are installed in a
+directory other than the default `~/.config/BambuStudio/plugins`.
+
+```
+$ PLUGIN_PATH=/path/to/bambu/plugins make -j
 ```
 
 [Bambu Studio]:https://bambulab.com/en/download/studio
