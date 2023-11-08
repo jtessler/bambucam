@@ -6,7 +6,7 @@ the video stream from a 3D printer in LAN mode.
 
 Usage:
 ```
-$ bambucam <device-ip> <device-id> <passcode> <path/to/output/dir>
+$ bambucam <device-ip> <device-id> <passcode> <path/to/output.jpg>
 ```
 
 ## Build instructions
