@@ -6,10 +6,16 @@ the video stream from a 3D printer in LAN mode.
 
 Usage:
 ```
-$ bambucam <device-ip> <device-id> <passcode> <path/to/output.jpg>
+$ bambucam <device-ip> <device-id> <passcode> <path/to/output.mkv>
 ```
 
 ## Build instructions
+
+Prepare the necessary `ffmpeg` dependencies:
+
+```
+$ sudo apt install libavutil-dev libavcodec-dev libavformat-dev
+```
 
 Assumes you have [Bambu Studio] installed and ran at least once to download the
 expected plugins.
