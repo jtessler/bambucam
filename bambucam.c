@@ -8,9 +8,10 @@
 #include <unistd.h>
 
 #define URL_MAX_SIZE 2048
-#define URL_FORMAT "bambu:///local/%s.?port=6000&" \
-                   "user=bblp&passwd=%s&device=%s&" \
-                   "version=00.00.00.00"
+#define URL_INPUT_FORMAT "bambu:///local/%s.?port=6000&" \
+                         "user=bblp&passwd=%s&device=%s&" \
+                         "version=00.00.00.00"
+#define URL_OUTPUT_FORMAT "rtp://localhost:%s"
 
 static void encode(AVCodecContext* enc_ctx, AVFrame* frame, AVPacket* pkt,
                    AVFormatContext* av_format_ctx, AVStream* av_stream) {
@@ -53,16 +54,16 @@ static void bambu_log(void *ctx, int lvl, const char *msg) {
 
 int main(int argc, char** argv) {
   if (argc != 5) {
-    printf("Usage: %s <ip> <device> <passcode> <output.mkv>\n", argv[0]);
+    printf("Usage: %s <ip> <device> <passcode> <rtp-port>\n", argv[0]);
     return -1;
   }
 
   char* ip = argv[1];
   char* device = argv[2];
   char* passcode = argv[3];
-  char* out_filename = argv[4];
-  char url[URL_MAX_SIZE];
-  snprintf(url, URL_MAX_SIZE, URL_FORMAT, ip, passcode, device);
+  char* rtp_port = argv[4];
+  char in_url[URL_MAX_SIZE];
+  char out_url[URL_MAX_SIZE];
 
   const AVCodec* av_encoder_codec = NULL;
   const AVCodec* av_decoder_codec = NULL;
@@ -83,10 +84,21 @@ int main(int argc, char** argv) {
 
   av_log_set_level(AV_LOG_DEBUG);
 
-  res = avio_open(&av_output_ctx, out_filename, AVIO_FLAG_WRITE);
+  res = snprintf(in_url, URL_MAX_SIZE, URL_INPUT_FORMAT, ip, passcode, device);
   if (res < 0) {
-    printf("Error opening output context %s: %s\n",
-           out_filename, av_err2str(res));
+    printf("Error formatting input URL\n");
+    goto close_and_exit;
+  }
+
+  res = snprintf(out_url, URL_MAX_SIZE, URL_OUTPUT_FORMAT, rtp_port);
+  if (res < 0) {
+    printf("Error formatting output URL\n");
+    goto close_and_exit;
+  }
+
+  res = avio_open(&av_output_ctx, out_url, AVIO_FLAG_WRITE);
+  if (res < 0) {
+    printf("Error opening output context %s: %s\n", out_url, av_err2str(res));
     goto close_and_exit;
   }
 
@@ -98,21 +110,21 @@ int main(int argc, char** argv) {
   }
   av_output_format_ctx->pb = av_output_ctx;
 
-  av_output_format_ctx->oformat = av_guess_format(NULL, out_filename, NULL);
+  av_output_format_ctx->oformat = av_guess_format("rtp_mpegts", NULL, NULL);
   if (!av_output_format_ctx->oformat) {
-    printf("Error guessing output format: %s\n", out_filename);
+    printf("Error guessing output format: %s\n", out_url);
     res = -1;
     goto close_and_exit;
   }
 
-  av_output_format_ctx->url = av_strdup(out_filename);
+  av_output_format_ctx->url = av_strdup(out_url);
   if (!av_output_format_ctx->oformat) {
-    printf("Error allocating URL: %s\n", out_filename);
+    printf("Error allocating URL: %s\n", out_url);
     res = -1;
     goto close_and_exit;
   }
 
-  av_encoder_codec = avcodec_find_encoder(AV_CODEC_ID_MPEG4);
+  av_encoder_codec = avcodec_find_encoder(AV_CODEC_ID_MPEG2VIDEO);
   if (!av_encoder_codec) {
     printf("Encoder codec not found\n");
     res = -1;
@@ -154,7 +166,7 @@ int main(int argc, char** argv) {
     goto close_and_exit;
   }
 
-  res = Bambu_Create(&tnl, url);
+  res = Bambu_Create(&tnl, in_url);
   if (res != Bambu_success) {
     printf("Error creating Bambu Tunnel: %d\n", res);
     goto close_and_exit;
@@ -247,7 +259,7 @@ int main(int argc, char** argv) {
     goto close_and_exit;
   }
 
-  for (int i = 0; i < 30; i++) {
+  for (int frame_i = 0; res >= 0; frame_i++) {  // Loop forever.
     while ((res = Bambu_ReadSample(tnl, &sample)) == Bambu_would_block) {
       usleep(33333); /* 30Hz */
     }
@@ -261,7 +273,7 @@ int main(int argc, char** argv) {
     }
 
     printf("Sample %d: size=%d flags=%d decode_time=%llu\n",
-           i, sample.size, sample.flags, sample.decode_time);
+           frame_i, sample.size, sample.flags, sample.decode_time);
 
     const uint8_t* buffer = sample.buffer;
     int buffer_size = sample.size;
@@ -293,7 +305,7 @@ int main(int argc, char** argv) {
       }
       av_packet_unref(av_packet);
 
-      av_frame->pts = i;
+      av_frame->pts = frame_i;
       encode(av_encoder_ctx, av_frame, av_packet, av_output_format_ctx,
              av_output_stream);
       av_frame_unref(av_frame);
