@@ -75,7 +75,7 @@ int main(int argc, char** argv) {
   AVPacket* av_packet = NULL;
   AVFrame* av_frame = NULL;
 
-  Bambu_Tunnel tnl;
+  Bambu_Tunnel tnl = NULL;
   Bambu_StreamInfo info;
   Bambu_Sample sample;
 
