@@ -16,8 +16,8 @@
 
 // Retry times in microseconds based on real-world observation to minimize
 // the number of "would block" results.
-#define START_STREAM_RETRY_US (100 * 1000)
-#define READ_SAMPLE_RETRY_US (100 * 1000)
+#define START_STREAM_RETRY_US (100 * 1000)  // 100ms.
+#define READ_SAMPLE_RETRY_US (50 * 1000)  // 50ms.
 
 // Observed frame buffer sizes averages around ~110000 bytes. Ensure callers
 // allocate plenty of space (~2x) in the absence of finding a better way to
