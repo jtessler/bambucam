@@ -7,8 +7,8 @@ LDFLAGS := \
 		-lavutil \
 
 OBJECTS := \
-	bambucam.o \
 	bambucam_impl.o \
+	main.o \
 
 bambucam: $(OBJECTS)
 	$(CC) -o $@ $^ $(LDFLAGS)
