@@ -30,7 +30,6 @@
 typedef struct {
   Bambu_Tunnel tunnel;
   Bambu_StreamInfo stream_info;
-  Bambu_Sample sample;
 } ctx_internal_t;
 
 int bambucam_alloc_ctx(bambucam_ctx_t* ctx) {
@@ -141,12 +140,13 @@ int bambucam_get_frame_height(bambucam_ctx_t ctx) {
 
 int bambucam_get_frame(bambucam_ctx_t ctx, uint8_t* buffer, size_t size) {
   ctx_internal_t* ctx_internal = (ctx_internal_t*) ctx;
+  Bambu_Sample sample;
   int res;
 
   // Attempt to grab a frame indefinitely. Assumes the Bambu library will
   // eventually return something besides "will block."
   do {
-    res = Bambu_ReadSample(ctx_internal->tunnel, &ctx_internal->sample);
+    res = Bambu_ReadSample(ctx_internal->tunnel, &sample);
     if (res == Bambu_would_block) {
       usleep(READ_SAMPLE_RETRY_US);
     } else if (res != Bambu_success) {
@@ -155,12 +155,12 @@ int bambucam_get_frame(bambucam_ctx_t ctx, uint8_t* buffer, size_t size) {
     }
   } while (res == Bambu_would_block);
 
-  if (size < ctx_internal->sample.size) {
+  if (size < sample.size) {
     fprintf(stderr, "Buffer is too small for frame: %ld < %d\n",
-            size, ctx_internal->sample.size);
+            size, sample.size);
     return -ENOBUFS;
   }
 
-  memcpy(buffer, ctx_internal->sample.buffer, ctx_internal->sample.size);
-  return ctx_internal->sample.size;
+  memcpy(buffer, sample.buffer, sample.size);
+  return sample.size;
 }
