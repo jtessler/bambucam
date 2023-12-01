@@ -211,8 +211,8 @@ int main(int argc, char** argv) {
   av_encoder_ctx->width = info.format.video.width;
   av_encoder_ctx->height = info.format.video.height;
   av_encoder_ctx->bit_rate = av_encoder_ctx->width * av_encoder_ctx->height * 4;
-  av_encoder_ctx->time_base = (AVRational) { 1, 2 };
-  //av_encoder_ctx->framerate = (AVRational) { info.format.video.frame_rate, 1 };
+  av_encoder_ctx->time_base = (AVRational) { 1, info.format.video.frame_rate };
+  av_encoder_ctx->framerate = (AVRational) { info.format.video.frame_rate, 1 };
   av_encoder_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
 
   if (av_output_format_ctx->flags & AVFMT_GLOBALHEADER)
