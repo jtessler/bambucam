@@ -7,7 +7,7 @@ LDFLAGS := \
 		-lavutil \
 
 OBJECTS := \
-	bambucam_impl.o \
+	bambucam.o \
 	main.o \
 
 bambucam: $(OBJECTS)
