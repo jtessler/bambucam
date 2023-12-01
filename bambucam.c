@@ -69,7 +69,7 @@ int main(int argc, char** argv) {
   const AVCodec* av_decoder_codec = NULL;
   AVCodecContext* av_encoder_ctx = NULL;
   AVCodecContext* av_decoder_ctx = NULL;
-  AVCodecParserContext* parser = NULL;
+  AVCodecParserContext* av_parser = NULL;
   AVIOContext* av_output_ctx = NULL;
   AVFormatContext* av_output_format_ctx = NULL;
   AVStream* av_output_stream = NULL;
@@ -159,8 +159,8 @@ int main(int argc, char** argv) {
     goto close_and_exit;
   }
 
-  parser = av_parser_init(av_decoder_codec->id);
-  if (!parser) {
+  av_parser = av_parser_init(av_decoder_codec->id);
+  if (!av_parser) {
     printf("Error initializing decoder parser context\n");
     res = -1;
     goto close_and_exit;
@@ -211,8 +211,8 @@ int main(int argc, char** argv) {
   av_encoder_ctx->width = info.format.video.width;
   av_encoder_ctx->height = info.format.video.height;
   av_encoder_ctx->bit_rate = av_encoder_ctx->width * av_encoder_ctx->height * 4;
-  av_encoder_ctx->time_base = (AVRational) { 1, info.format.video.frame_rate };
-  av_encoder_ctx->framerate = (AVRational) { info.format.video.frame_rate, 1 };
+  av_encoder_ctx->time_base = (AVRational) { 1, 2 };
+  //av_encoder_ctx->framerate = (AVRational) { info.format.video.frame_rate, 1 };
   av_encoder_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
 
   if (av_output_format_ctx->flags & AVFMT_GLOBALHEADER)
@@ -278,7 +278,7 @@ int main(int argc, char** argv) {
     const uint8_t* buffer = sample.buffer;
     int buffer_size = sample.size;
     while (buffer_size > 0) {
-      res = av_parser_parse2(parser, av_decoder_ctx, &av_packet->data,
+      res = av_parser_parse2(av_parser, av_decoder_ctx, &av_packet->data,
                              &av_packet->size, sample.buffer, sample.size,
                              AV_NOPTS_VALUE, AV_NOPTS_VALUE, 0);
       if (res < 0) {
@@ -326,6 +326,7 @@ int main(int argc, char** argv) {
 close_and_exit:
   if (av_output_ctx) avio_closep(&av_output_ctx);
   if (av_output_format_ctx) avformat_free_context(av_output_format_ctx);
+  if (av_parser) av_parser_close(av_parser);
   if (av_encoder_ctx) avcodec_free_context(&av_encoder_ctx);
   if (av_decoder_ctx) avcodec_free_context(&av_decoder_ctx);
   if (av_frame) av_frame_free(&av_frame);
