@@ -1,10 +1,14 @@
 PLUGIN_PATH ?= $(HOME)/.config/BambuStudio/plugins
-OBJECTS := bambucam.o
+
 LDFLAGS := \
 		-lBambuSource -L$(PLUGIN_PATH) -Wl,-rpath=$(PLUGIN_PATH) \
 		-lavcodec \
 		-lavformat \
 		-lavutil \
+
+OBJECTS := \
+	bambucam.o \
+	bambucam_impl.o \
 
 bambucam: $(OBJECTS)
 	$(CC) -o $@ $^ $(LDFLAGS)

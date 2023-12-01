@@ -1,4 +1,4 @@
-#include "bambu.h"
+#include "bambucam.h"
 #include <libavformat/avformat.h>
 #include <libavformat/avio.h>
 #include <libavcodec/avcodec.h>
@@ -8,9 +8,6 @@
 #include <unistd.h>
 
 #define URL_MAX_SIZE 2048
-#define URL_INPUT_FORMAT "bambu:///local/%s.?port=6000&" \
-                         "user=bblp&passwd=%s&device=%s&" \
-                         "version=00.00.00.00"
 #define URL_OUTPUT_FORMAT "rtp://localhost:%s"
 
 static void encode(AVCodecContext* enc_ctx, AVFrame* frame, AVPacket* pkt,
@@ -47,11 +44,6 @@ static void encode(AVCodecContext* enc_ctx, AVFrame* frame, AVPacket* pkt,
   }
 }
 
-static void bambu_log(void *ctx, int lvl, const char *msg) {
-  printf("Bambu<%d>: %s\n", lvl, msg);
-  Bambu_FreeLogMsg(msg);
-}
-
 int main(int argc, char** argv) {
   if (argc != 5) {
     printf("Usage: %s <ip> <device> <passcode> <rtp-port>\n", argv[0]);
@@ -62,7 +54,6 @@ int main(int argc, char** argv) {
   char* device = argv[2];
   char* passcode = argv[3];
   char* rtp_port = argv[4];
-  char in_url[URL_MAX_SIZE];
   char out_url[URL_MAX_SIZE];
 
   const AVCodec* av_encoder_codec = NULL;
@@ -76,19 +67,13 @@ int main(int argc, char** argv) {
   AVPacket* av_packet = NULL;
   AVFrame* av_frame = NULL;
 
-  Bambu_Tunnel tnl = NULL;
-  Bambu_StreamInfo info;
-  Bambu_Sample sample;
+  bambucam_ctx_t bambucam_ctx = NULL;
 
   int res = -1;
+  uint8_t* frame_buffer = NULL;
+  size_t frame_buffer_size = 0;
 
   av_log_set_level(AV_LOG_DEBUG);
-
-  res = snprintf(in_url, URL_MAX_SIZE, URL_INPUT_FORMAT, ip, passcode, device);
-  if (res < 0) {
-    printf("Error formatting input URL\n");
-    goto close_and_exit;
-  }
 
   res = snprintf(out_url, URL_MAX_SIZE, URL_OUTPUT_FORMAT, rtp_port);
   if (res < 0) {
@@ -166,53 +151,32 @@ int main(int argc, char** argv) {
     goto close_and_exit;
   }
 
-  res = Bambu_Create(&tnl, in_url);
-  if (res != Bambu_success) {
-    printf("Error creating Bambu Tunnel: %d\n", res);
+  res = bambucam_alloc_ctx(&bambucam_ctx);
+  if (res < 0) {
+    printf("Error allocation bambucam\n");
     goto close_and_exit;
   }
 
-  Bambu_SetLogger(tnl, bambu_log, NULL);
-  res = Bambu_Open(tnl);
-  if (res != Bambu_success) {
-    printf("Error opening Bambu Tunnel: %d\n", res);
+  res = bambucam_connect(bambucam_ctx, ip, device, passcode);
+  if (res < 0) {
+    printf("Error connecting via bambucam\n");
     goto close_and_exit;
   }
 
-  while ((res = Bambu_StartStream(tnl, 1 /* video */)) == Bambu_would_block) {
-    usleep(100000);
-  }
-  if (res != Bambu_success) {
-    printf("Error starting stream: %d\n", res);
+  frame_buffer_size = bambucam_get_max_frame_buffer_size(bambucam_ctx);
+  frame_buffer = malloc(frame_buffer_size);
+  if (frame_buffer == NULL) {
+    printf("Error allocating frame buffer\n");
     goto close_and_exit;
   }
 
-  res = Bambu_GetStreamCount(tnl);
-  if (res != 1) {
-    printf("Expected one video stream, got %d\n", res);
-    res = -1;
-    goto close_and_exit;
-  }
-
-  Bambu_GetStreamInfo(tnl, 1, &info);
-  if (info.type != VIDE) {
-    printf("Expected stream type VIDE, got %d\n", info.type);
-    res = -1;
-    goto close_and_exit;
-  }
-
-  printf("Stream: type=%d, sub_type=%d width=%d height=%d, "
-         "frame_rate=%d format_size=%d max_frame_size=%d\n",
-         info.type, info.sub_type, info.format.video.width,
-         info.format.video.height, info.format.video.frame_rate,
-         info.format_size, info.max_frame_size);
-
+  int fps = bambucam_get_framerate(bambucam_ctx);
   av_channel_layout_default(&av_encoder_ctx->ch_layout, 1);
-  av_encoder_ctx->width = info.format.video.width;
-  av_encoder_ctx->height = info.format.video.height;
+  av_encoder_ctx->width = bambucam_get_frame_width(bambucam_ctx);
+  av_encoder_ctx->height = bambucam_get_frame_height(bambucam_ctx);
   av_encoder_ctx->bit_rate = av_encoder_ctx->width * av_encoder_ctx->height * 4;
-  av_encoder_ctx->time_base = (AVRational) { 1, info.format.video.frame_rate };
-  av_encoder_ctx->framerate = (AVRational) { info.format.video.frame_rate, 1 };
+  av_encoder_ctx->time_base = (AVRational) { 1, fps };
+  av_encoder_ctx->framerate = (AVRational) { fps, 1 };
   av_encoder_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
 
   if (av_output_format_ctx->flags & AVFMT_GLOBALHEADER)
@@ -260,26 +224,17 @@ int main(int argc, char** argv) {
   }
 
   for (int frame_i = 0; res >= 0; frame_i++) {  // Loop forever.
-    while ((res = Bambu_ReadSample(tnl, &sample)) == Bambu_would_block) {
-      usleep(33333); /* 30Hz */
-    }
-    if (res == Bambu_stream_end) {
-      printf("End of stream, exiting");
-      res = 0;
-      goto close_and_exit;
-    } else if (res != Bambu_success) {
-      printf("End of stream, exiting");
+    res = bambucam_get_frame(bambucam_ctx, frame_buffer, frame_buffer_size);
+    if (res < 0) {
+      printf("Error getting frame\n");
       goto close_and_exit;
     }
 
-    printf("Sample %d: size=%d flags=%d decode_time=%llu\n",
-           frame_i, sample.size, sample.flags, sample.decode_time);
-
-    const uint8_t* buffer = sample.buffer;
-    int buffer_size = sample.size;
+    const uint8_t* buffer = frame_buffer;
+    int buffer_size = frame_buffer_size;
     while (buffer_size > 0) {
       res = av_parser_parse2(av_parser, av_decoder_ctx, &av_packet->data,
-                             &av_packet->size, sample.buffer, sample.size,
+                             &av_packet->size, buffer, buffer_size,
                              AV_NOPTS_VALUE, AV_NOPTS_VALUE, 0);
       if (res < 0) {
         printf("Error creating JPEG packet: %s\n", av_err2str(res));
@@ -311,7 +266,7 @@ int main(int argc, char** argv) {
       av_frame_unref(av_frame);
     }
 
-    usleep(1000 * 1000 / info.format.video.frame_rate);
+    usleep(1000 * 1000 / fps);
   }
 
   encode(av_encoder_ctx, NULL, av_packet, av_output_format_ctx,
@@ -331,7 +286,7 @@ close_and_exit:
   if (av_decoder_ctx) avcodec_free_context(&av_decoder_ctx);
   if (av_frame) av_frame_free(&av_frame);
   if (av_packet) av_packet_free(&av_packet);
-  if (tnl) Bambu_Close(tnl);
-  if (tnl) Bambu_Destroy(tnl);
+  if (frame_buffer) free(frame_buffer);
+  if (bambucam_ctx) bambucam_free_ctx(bambucam_ctx);
   return res;
 }
