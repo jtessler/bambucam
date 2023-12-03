@@ -35,7 +35,13 @@ Use `PLUGIN_PATH` to specify a different path if the plugins are installed in a
 directory other than the default `~/.config/BambuStudio/plugins`.
 
 ```
-$ PLUGIN_PATH=/path/to/bambu/plugins make -j
+$ make PLUGIN_PATH=/path/to/bambu/plugins -j
+```
+
+Use `DEBUG` to add more verbose logging and build debug symbols.
+
+```
+$ make DEBUG=1 -j
 ```
 
 ## RTP Stream Details
