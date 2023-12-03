@@ -119,7 +119,7 @@ int bambucam_disconnect(bambucam_ctx_t ctx) {
   return 0;
 }
 
-int bambucam_get_max_frame_buffer_size(bambucam_ctx_t ctx) {
+size_t bambucam_get_max_frame_buffer_size(bambucam_ctx_t ctx) {
   return MAX_FRAME_SIZE_BYTES;
 }
 
@@ -138,7 +138,7 @@ int bambucam_get_frame_height(bambucam_ctx_t ctx) {
   return ctx_internal->stream_info.format.video.height;
 }
 
-int bambucam_get_frame(bambucam_ctx_t ctx, uint8_t* buffer, size_t size) {
+size_t bambucam_get_frame(bambucam_ctx_t ctx, uint8_t* buffer, size_t size) {
   ctx_internal_t* ctx_internal = (ctx_internal_t*) ctx;
   Bambu_Sample sample;
   int res;

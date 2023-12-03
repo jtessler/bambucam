@@ -53,7 +53,7 @@ int main(int argc, char** argv) {
   int fps = bambucam_get_framerate(bambucam_ctx);
   int width = bambucam_get_frame_width(bambucam_ctx);
   int height = bambucam_get_frame_height(bambucam_ctx);
-  int frame_buffer_size = bambucam_get_max_frame_buffer_size(bambucam_ctx);
+  size_t frame_buffer_size = bambucam_get_max_frame_buffer_size(bambucam_ctx);
 
   res = rtp_server_start(rtp_server_ctx, rtp_port, &rtp_server_callbacks,
                          width, height, fps, frame_buffer_size);

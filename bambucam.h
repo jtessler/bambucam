@@ -33,7 +33,7 @@ int bambucam_disconnect(bambucam_ctx_t ctx);
 //
 
 // Returns the maximum possible frame buffer size in bytes.
-int bambucam_get_max_frame_buffer_size(bambucam_ctx_t ctx);
+size_t bambucam_get_max_frame_buffer_size(bambucam_ctx_t ctx);
 
 // Returns the framerate in frames-per-second (FPS).
 int bambucam_get_framerate(bambucam_ctx_t ctx);
@@ -45,4 +45,4 @@ int bambucam_get_frame_height(bambucam_ctx_t ctx);
 // Fetches a frame, copies it into the given buffer, and returns the frame
 // buffer size in bytes. The caller is responsible for allocating and freeing
 // the given buffer.
-int bambucam_get_frame(bambucam_ctx_t ctx, uint8_t* buffer, size_t size);
+size_t bambucam_get_frame(bambucam_ctx_t ctx, uint8_t* buffer, size_t size);
