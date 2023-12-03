@@ -9,6 +9,7 @@ LDFLAGS := \
 OBJECTS := \
 	bambucam.o \
 	main.o \
+	rtp_server.o \
 
 bambucam: $(OBJECTS)
 	$(CC) -o $@ $^ $(LDFLAGS)
