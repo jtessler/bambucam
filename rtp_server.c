@@ -172,8 +172,9 @@ int rtp_server_start(rtp_server_ctx_t ctx,
     return res;
   }
 
-  // TODO: Add a debug mode to selectively enable verbose logging.
+#ifdef DEBUG
   av_log_set_level(AV_LOG_DEBUG);
+#endif
 
   //
   // Initialize the many many FFmpeg objects needed to produce a video stream.

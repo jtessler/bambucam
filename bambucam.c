@@ -51,6 +51,11 @@ int bambucam_free_ctx(bambucam_ctx_t ctx) {
   return 0;
 }
 
+static void tunnel_log(void* context, int level, tchar const* msg) {
+  fprintf(stderr, "Bambu<%d>: %s\n", level, msg);
+  Bambu_FreeLogMsg(msg);
+}
+
 int bambucam_connect(bambucam_ctx_t ctx,
                      char* ip, char* device, char* passcode) {
   ctx_internal_t* ctx_internal = (ctx_internal_t*) ctx;
@@ -69,7 +74,10 @@ int bambucam_connect(bambucam_ctx_t ctx,
     return -1;
   }
 
-  //Bambu_SetLogger(tnl, bambu_log, NULL);
+#ifdef DEBUG
+  Bambu_SetLogger(ctx_internal->tunnel, tunnel_log, NULL);
+#endif
+
   res = Bambu_Open(ctx_internal->tunnel);
   if (res != Bambu_success) {
     printf("Error opening Bambu tunnel: %d\n", res);
