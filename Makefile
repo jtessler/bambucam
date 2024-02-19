@@ -10,6 +10,7 @@ LDFLAGS := \
 	-lavcodec \
 	-lavformat \
 	-lavutil \
+	-lpthread \
 
 OBJECTS := \
 	bambucam.o \

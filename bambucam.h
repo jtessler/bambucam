@@ -42,7 +42,6 @@ int bambucam_get_framerate(bambucam_ctx_t ctx);
 int bambucam_get_frame_width(bambucam_ctx_t ctx);
 int bambucam_get_frame_height(bambucam_ctx_t ctx);
 
-// Fetches a frame, copies it into the given buffer, and returns the frame
-// buffer size in bytes. The caller is responsible for allocating and freeing
-// the given buffer.
-size_t bambucam_get_frame(bambucam_ctx_t ctx, uint8_t* buffer, size_t size);
+// Fetches a frame and passes the underlying image buffer in the given
+// arguments. The caller does NOT own this buffer and should make its own copy.
+int bambucam_get_frame(bambucam_ctx_t ctx, uint8_t** buffer, size_t* size);

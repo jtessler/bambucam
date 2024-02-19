@@ -146,7 +146,7 @@ int bambucam_get_frame_height(bambucam_ctx_t ctx) {
   return ctx_internal->stream_info.format.video.height;
 }
 
-size_t bambucam_get_frame(bambucam_ctx_t ctx, uint8_t* buffer, size_t size) {
+int bambucam_get_frame(bambucam_ctx_t ctx, uint8_t** buffer, size_t* size) {
   ctx_internal_t* ctx_internal = (ctx_internal_t*) ctx;
   Bambu_Sample sample;
   int res;
@@ -163,12 +163,11 @@ size_t bambucam_get_frame(bambucam_ctx_t ctx, uint8_t* buffer, size_t size) {
     }
   } while (res == Bambu_would_block);
 
-  if (size < sample.size) {
-    fprintf(stderr, "Buffer is too small for frame: %ld < %d\n",
-            size, sample.size);
-    return -ENOBUFS;
-  }
-
-  memcpy(buffer, sample.buffer, sample.size);
-  return sample.size;
+  // TODO: Can we be sure this buffer exists after sample is gone?
+  //
+  // Consider adding a bambucam_frame_t opaque pointer to a Bambu_Sample to add
+  // a copy function here instead of passing the underlying pointer.
+  *buffer = (uint8_t*) sample.buffer;
+  *size = sample.size;
+  return 0;
 }
