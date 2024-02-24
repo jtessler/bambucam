@@ -18,7 +18,7 @@ LDLIBS := \
 
 OBJECTS := \
 	bambu.o \
-	rtp_server.o \
+	server_ffmpeg_rtp.o \
 
 bambucam: $(OBJECTS)
 

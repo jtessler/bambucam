@@ -1,4 +1,8 @@
-#include "rtp_server.h"
+// RTP server implementation using FFmpeg to transcode JPEG frames into an MPEG
+// video and stream it using the Pro-MPEG Code of Practice #3 Release 2 FEC
+// protocol.
+
+#include "server.h"
 
 #include <libavformat/avformat.h>
 #include <libavformat/avio.h>
@@ -33,7 +37,7 @@ typedef struct {
   size_t image_buffer_size;
 } ctx_internal_t;
 
-int rtp_server_alloc_ctx(rtp_server_ctx_t* ctx) {
+int server_alloc_ctx(server_ctx_t* ctx) {
   *ctx = malloc(sizeof(ctx_internal_t));
   if (*ctx == NULL) {
     fprintf(stderr, "Error allocating context: %s\n", strerror(errno));
@@ -44,7 +48,7 @@ int rtp_server_alloc_ctx(rtp_server_ctx_t* ctx) {
   return 0;
 }
 
-int rtp_server_free_ctx(rtp_server_ctx_t ctx) {
+int server_free_ctx(server_ctx_t ctx) {
   ctx_internal_t* ctx_internal = (ctx_internal_t*) ctx;
 
   if (ctx_internal->output_ctx) {
@@ -159,9 +163,9 @@ static int send_video_frame(ctx_internal_t* ctx_internal, int is_flush) {
 }
 
 
-int rtp_server_start(rtp_server_ctx_t ctx,
-                     int port, rtp_server_callbacks_t* callbacks,
-                     int width, int height, int fps, size_t buffer_size) {
+int server_start(server_ctx_t ctx,
+                 int port, server_callbacks_t* callbacks,
+                 int width, int height, int fps, size_t buffer_size) {
   ctx_internal_t* ctx_internal = (ctx_internal_t*) ctx;
   char out_url[URL_MAX_SIZE];
   int res;
