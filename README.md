@@ -75,6 +75,8 @@ in a never-ending response.
 Build Bambu Cam with `SERVER=HTTP` and you can view the video stream on any web
 browser by navigating to `http://localhost:<port>/`.
 
+![Video stream example in a web browser](https://i.imgur.com/hvHuyc6.png])
+
 [`multipart/x-mixed-replace`]:https://wiki.tcl-lang.org/page/multipart%2Fx-mixed-replace
 
 ## RTP Stream Details
@@ -96,6 +98,8 @@ Build Bambu Cam with `SERVER=RTP` and you can view the RTP stream in VLC:
 ```
 $ vlc rtp://localhost/<port>
 ```
+
+![Video stream example in VLC](https://i.imgur.com/lOo64MV.png)
 
 [Bambu Studio]:https://bambulab.com/en/download/studio
 [FFmpeg]:https://ffmpeg.org/ffmpeg-protocols.html#prompeg
