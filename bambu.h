@@ -1,117 +1,46 @@
-// Adapted from BambuStudio's BambuTunnel.h with all dynamic loading support
-// removed for the Bambu Source library. This project links against it at build
-// time.
+// Bambu camera handler
 //
-// https://github.com/bambulab/BambuStudio/blob/v01.07.07.89/src/slic3r/GUI/Printer/BambuTunnel.h
+// A wrapper around the Bambu tunnel prebuilt library, which manages the local
+// network connection to a Bambu 3D printer. Exposes functions to load a single
+// camera frame into a buffer.
 
-typedef char tchar;
+#include <stddef.h>
+#include <stdint.h>
 
-typedef void* Bambu_Tunnel;
+// Opaque pointer to prebuilt Bambu structures to maintain a single network
+// connection with a Bambu 3D printer. The caller owns this object.
+typedef struct bambu_ctx* bambu_ctx_t;
 
-typedef void (*Logger)(void * context, int level, tchar const* msg);
+// Allocates the objects required to open a network connection with a Bambu 3D
+// printer. The caller is expected to call bambu_free_ctx when done with it.
+int bambu_alloc_ctx(bambu_ctx_t* ctx);
+int bambu_free_ctx(bambu_ctx_t ctx);
 
-typedef enum __Bambu_StreamType
-{
-    VIDE,
-    AUDI
-} Bambu_StreamType;
+// Opens a new connection and camera stream to a Bambu 3D printer in LAN Mode
+// based on:
+//
+//   1. IP address or hostname
+//   2. Device identifier, which is likely the serial number
+//   3. Access code generated in the Bambu network UI on the printer
+//
+// See: https://wiki.bambulab.com/en/knowledge-sharing/enable-lan-mode
+int bambu_connect(bambu_ctx_t ctx, char* ip, char* device, char* passcode);
+int bambu_disconnect(bambu_ctx_t ctx);
 
-typedef enum __Bambu_VideoSubType
-{
-    AVC1,
-    MJPG,
-} Bambu_VideoSubType;
+//
+// The following functions assume a connection is established.
+//
 
-typedef enum __Bambu_AudioSubType
-{
-    MP4A
-} Bambu_AudioSubType;
+// Returns the maximum possible frame buffer size in bytes.
+size_t bambu_get_max_frame_buffer_size(bambu_ctx_t ctx);
 
-typedef enum __Bambu_FormatType
-{
-    video_avc_packet,
-    video_avc_byte_stream,
-    video_jpeg,
-    audio_raw,
-    audio_adts
-} Bambu_FormatType;
+// Returns the framerate in frames-per-second (FPS).
+int bambu_get_framerate(bambu_ctx_t ctx);
 
-typedef struct __Bambu_StreamInfo
-{
-    Bambu_StreamType type;
-    int sub_type;
-    union {
-        struct
-        {
-            int width;
-            int height;
-            int frame_rate;
-        } video;
-        struct
-        {
-            int sample_rate;
-            int channel_count;
-            int sample_size;
-        } audio;
-    } format;
-    int format_type;
-    int format_size;
-    int max_frame_size;
-    unsigned char const * format_buffer;
-} Bambu_StreamInfo;
+// Returns the frame dimensions.
+int bambu_get_frame_width(bambu_ctx_t ctx);
+int bambu_get_frame_height(bambu_ctx_t ctx);
 
-typedef enum __Bambu_SampleFlag
-{
-    f_sync = 1
-} Bambu_SampleFlag;
-
-typedef struct __Bambu_Sample
-{
-    int itrack;
-    int size;
-    int flags;
-    unsigned char const * buffer;
-    unsigned long long decode_time;
-} Bambu_Sample;
-
-typedef enum __Bambu_Error
-{
-    Bambu_success,
-    Bambu_stream_end,
-    Bambu_would_block,
-    Bambu_buffer_limit
-} Bambu_Error;
-
-int Bambu_Create(Bambu_Tunnel* tunnel, char const* path);
-
-void Bambu_SetLogger(Bambu_Tunnel tunnel, Logger logger, void * context);
-
-int Bambu_Open(Bambu_Tunnel tunnel);
-
-int Bambu_StartStream(Bambu_Tunnel tunnel, int video);
-
-int Bambu_GetStreamCount(Bambu_Tunnel tunnel);
-
-int Bambu_GetStreamInfo(Bambu_Tunnel tunnel, int index, Bambu_StreamInfo* info);
-
-unsigned long Bambu_GetDuration(Bambu_Tunnel tunnel);
-
-int Bambu_Seek(Bambu_Tunnel tunnel, unsigned long time);
-
-int Bambu_ReadSample(Bambu_Tunnel tunnel, Bambu_Sample* sample);
-
-int Bambu_SendMessage(Bambu_Tunnel tunnel, int ctrl, char const* data, int len);
-
-int Bambu_RecvMessage(Bambu_Tunnel tunnel, int* ctrl, char* data, int* len);
-
-void Bambu_Close(Bambu_Tunnel tunnel);
-
-void Bambu_Destroy(Bambu_Tunnel tunnel);
-
-int Bambu_Init();
-
-void Bambu_Deinit();
-
-char const* Bambu_GetLastErrorMsg();
-
-void Bambu_FreeLogMsg(tchar const* msg);
+// Fetches a frame and passes the underlying image buffer in the given
+// arguments. The caller does NOT own this buffer and should make its own copy.
+int bambu_get_frame(bambu_ctx_t ctx, uint8_t** buffer, size_t* size);

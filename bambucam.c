@@ -1,173 +1,189 @@
-#include "bambucam.h"
-
 #include "bambu.h"
+#include "rtp_server.h"
 #include <errno.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
-// URL format as copied directly from Bambu Studio source code.
-// See: //BambuStudio/src/slic3r/GUI/MediaPlayCtrl.cpp
-#define URL_MAX_SIZE 2048
-#define URL_INPUT_FORMAT "bambu:///local/%s.?port=6000&" \
-                         "user=bblp&passwd=%s&device=%s&" \
-                         "version=00.00.00.00"
-
-// Retry times in microseconds based on real-world observation to minimize
-// the number of "would block" results.
-#define START_STREAM_RETRY_US (100 * 1000)  // 100ms.
-#define READ_SAMPLE_RETRY_US (50 * 1000)  // 50ms.
-
-// Observed frame buffer sizes averages around ~110000 bytes. Ensure callers
-// allocate plenty of space (~2x) in the absence of finding a better way to
-// get the max frame size.
-//
-// Note: ctx_internal->stream_info.max_frame_size is always zero...
-#define MAX_FRAME_SIZE_BYTES (200 * 1024)
-
-// The internal representations of the opaque pointers.
 typedef struct {
-  Bambu_Tunnel tunnel;
-  Bambu_StreamInfo stream_info;
-} ctx_internal_t;
+  // User provided arguments needed within threads.
+  int rtp_port;
 
-int bambucam_alloc_ctx(bambucam_ctx_t* ctx) {
-  *ctx = malloc(sizeof(ctx_internal_t));
-  if (*ctx == NULL) {
-    fprintf(stderr, "Error allocating context: %s\n", strerror(errno));
-    return -errno;
+  // The contexts used by both the Bambu and RTP server threads.
+  bambu_ctx_t bambu_ctx;
+  rtp_server_ctx_t rtp_server_ctx;
+  rtp_server_callbacks_t rtp_server_callbacks;
+
+  // An image frame buffer shared by both threads. The Bambu thread
+  // populates it and the RTP server thread consumes it.
+  uint8_t* image_buffer;
+  size_t image_buffer_size_max;
+  size_t image_size;
+  pthread_mutex_t image_buffer_mutex;  // Ensure no concurrent access.
+} thread_ctx_t;
+
+// Simply copies the image buffer from the thread context into the given buffer
+// after acquiring the mutex lock.
+static size_t copy_image_buffer(void* callback_ctx,
+                         uint8_t* buffer, size_t buffer_size_max) {
+  thread_ctx_t* thread_ctx = (thread_ctx_t*) callback_ctx;
+
+  if (buffer_size_max < thread_ctx->image_buffer_size_max) {
+    fprintf(stderr, "Destination image buffer is too small: %ld < %ld\n",
+            buffer_size_max, thread_ctx->image_buffer_size_max);
+    return -1;
   }
 
-  memset(*ctx, 0, sizeof(ctx_internal_t));
-  return 0;
+  pthread_mutex_lock(&thread_ctx->image_buffer_mutex);
+  size_t image_size = thread_ctx->image_size;
+  memcpy(buffer, thread_ctx->image_buffer, image_size);
+  pthread_mutex_unlock(&thread_ctx->image_buffer_mutex);
+  return image_size;
 }
 
-int bambucam_free_ctx(bambucam_ctx_t ctx) {
-  ctx_internal_t* ctx_internal = (ctx_internal_t*) ctx;
 
-  if (ctx_internal->tunnel) Bambu_Destroy(ctx_internal->tunnel);
-  free(ctx_internal);
-  return 0;
-}
-
-static void tunnel_log(void* context, int level, tchar const* msg) {
-  fprintf(stderr, "Bambu<%d>: %s\n", level, msg);
-  Bambu_FreeLogMsg(msg);
-}
-
-int bambucam_connect(bambucam_ctx_t ctx,
-                     char* ip, char* device, char* passcode) {
-  ctx_internal_t* ctx_internal = (ctx_internal_t*) ctx;
+static void* bambu_routine(void* ctx) {
+  thread_ctx_t* thread_ctx = (thread_ctx_t*) ctx;
+  bambu_ctx_t bambu_ctx = thread_ctx->bambu_ctx;
+  int fps = bambu_get_framerate(bambu_ctx);
   int res;
-  char url[URL_MAX_SIZE];
 
-  res = snprintf(url, URL_MAX_SIZE, URL_INPUT_FORMAT, ip, passcode, device);
+  while (1) {
+    uint8_t* bambu_buffer = NULL;
+    size_t bambu_buffer_size;
+    res = bambu_get_frame(bambu_ctx, &bambu_buffer, &bambu_buffer_size);
+    if (res < 0) {
+      fprintf(stderr, "Error getting frame\n");
+      return NULL;
+    }
+
+    if (thread_ctx->image_buffer_size_max < bambu_buffer_size) {
+      fprintf(stderr, "Destination image buffer is too small: %ld < %ld\n",
+              thread_ctx->image_buffer_size_max, bambu_buffer_size);
+      return NULL;
+    }
+
+    pthread_mutex_lock(&thread_ctx->image_buffer_mutex);
+    memcpy(thread_ctx->image_buffer, bambu_buffer, bambu_buffer_size);
+    thread_ctx->image_size = bambu_buffer_size;
+    pthread_mutex_unlock(&thread_ctx->image_buffer_mutex);
+
+    usleep(1000 * 1000 / fps);  // Wait for the next frame tick.
+  }
+
+  return NULL;
+}
+
+static void* rtp_server_routine(void* ctx) {
+  thread_ctx_t* thread_ctx = (thread_ctx_t*) ctx;
+  bambu_ctx_t bambu_ctx = thread_ctx->bambu_ctx;
+  rtp_server_ctx_t rtp_server_ctx = thread_ctx->rtp_server_ctx;
+
+  int fps = bambu_get_framerate(bambu_ctx);
+  int width = bambu_get_frame_width(bambu_ctx);
+  int height = bambu_get_frame_height(bambu_ctx);
+  size_t buffer_size = bambu_get_max_frame_buffer_size(bambu_ctx);
+
+  int res = rtp_server_start(rtp_server_ctx,
+                             thread_ctx->rtp_port,
+                             &thread_ctx->rtp_server_callbacks,
+                             width, height, fps, buffer_size);
   if (res < 0) {
-    fprintf(stderr, "Error formatting input URL\n");
-    return res;
+    fprintf(stderr, "Error running RTP server\n");
   }
+  return NULL;
+}
 
-  res = Bambu_Create(&ctx_internal->tunnel, url);
-  if (res != Bambu_success) {
-    fprintf(stderr, "Error creating Bambu tunnel: %d\n", res);
+int main(int argc, char** argv) {
+  if (argc != 5) {
+    fprintf(stderr, "Usage: %s <ip> <device> <passcode> <rtp-port>\n", argv[0]);
     return -1;
   }
 
-#ifdef DEBUG
-  Bambu_SetLogger(ctx_internal->tunnel, tunnel_log, NULL);
-#endif
+  char* ip = argv[1];
+  char* device = argv[2];
+  char* passcode = argv[3];
+  int rtp_port = atoi(argv[4]);
 
-  res = Bambu_Open(ctx_internal->tunnel);
-  if (res != Bambu_success) {
-    printf("Error opening Bambu tunnel: %d\n", res);
-    return -1;
-  }
-
-  // Attempt to start a stream indefinitely. Assumes the Bambu library will
-  // eventually return something besides "will block."
-  do {
-    // The second argument is undocumented. Bambu Studio source code suggests
-    // "1" or "true" means "video."
-    res = Bambu_StartStream(ctx_internal->tunnel, 1);
-    if (res == Bambu_would_block) {
-      usleep(START_STREAM_RETRY_US);
-    } else if (res != Bambu_success) {
-      fprintf(stderr, "Error starting stream: %d\n", res);
-      return -1;
-    }
-  } while (res == Bambu_would_block);
-
-  res = Bambu_GetStreamCount(ctx_internal->tunnel);
-  if (res != 1) {
-    fprintf(stderr, "Expected one video stream, got %d\n", res);
-    return -1;
-  }
-
-  res = Bambu_GetStreamInfo(ctx_internal->tunnel,
-                            1, // Stream index (assuming 1).
-                            &ctx_internal->stream_info);
-  if (res != Bambu_success) {
-    fprintf(stderr, "Error getting stream info: %d\n", res);
-    return -1;
-  }
-
-  if (ctx_internal->stream_info.type != VIDE) {
-    fprintf(stderr, "Expected stream type VIDE, got %d\n",
-            ctx_internal->stream_info.type);
-    return -1;
-  }
-
-  return 0;
-}
-
-int bambucam_disconnect(bambucam_ctx_t ctx) {
-  ctx_internal_t* ctx_internal = (ctx_internal_t*) ctx;
-  Bambu_Close(ctx_internal->tunnel);
-  return 0;
-}
-
-size_t bambucam_get_max_frame_buffer_size(bambucam_ctx_t ctx) {
-  return MAX_FRAME_SIZE_BYTES;
-}
-
-int bambucam_get_framerate(bambucam_ctx_t ctx) {
-  ctx_internal_t* ctx_internal = (ctx_internal_t*) ctx;
-  return ctx_internal->stream_info.format.video.frame_rate;
-}
-
-int bambucam_get_frame_width(bambucam_ctx_t ctx) {
-  ctx_internal_t* ctx_internal = (ctx_internal_t*) ctx;
-  return ctx_internal->stream_info.format.video.width;
-}
-
-int bambucam_get_frame_height(bambucam_ctx_t ctx) {
-  ctx_internal_t* ctx_internal = (ctx_internal_t*) ctx;
-  return ctx_internal->stream_info.format.video.height;
-}
-
-int bambucam_get_frame(bambucam_ctx_t ctx, uint8_t** buffer, size_t* size) {
-  ctx_internal_t* ctx_internal = (ctx_internal_t*) ctx;
-  Bambu_Sample sample;
+  bambu_ctx_t bambu_ctx = NULL;
+  rtp_server_ctx_t rtp_server_ctx = NULL;
   int res;
 
-  // Attempt to grab a frame indefinitely. Assumes the Bambu library will
-  // eventually return something besides "will block."
-  do {
-    res = Bambu_ReadSample(ctx_internal->tunnel, &sample);
-    if (res == Bambu_would_block) {
-      usleep(READ_SAMPLE_RETRY_US);
-    } else if (res != Bambu_success) {
-      fprintf(stderr, "Error reading sample: %d\n", res);
-      return -1;
-    }
-  } while (res == Bambu_would_block);
+  res = bambu_alloc_ctx(&bambu_ctx);
+  if (res < 0) {
+    fprintf(stderr, "Error allocating bambu\n");
+    goto close_and_exit;
+  }
 
-  // TODO: Can we be sure this buffer exists after sample is gone?
-  //
-  // Consider adding a bambucam_frame_t opaque pointer to a Bambu_Sample to add
-  // a copy function here instead of passing the underlying pointer.
-  *buffer = (uint8_t*) sample.buffer;
-  *size = sample.size;
-  return 0;
+  res = rtp_server_alloc_ctx(&rtp_server_ctx);
+  if (res < 0) {
+    fprintf(stderr, "Error allocating RTP server\n");
+    goto close_and_exit;
+  }
+
+  res = bambu_connect(bambu_ctx, ip, device, passcode);
+  if (res < 0) {
+    fprintf(stderr, "Error connecting via bambu\n");
+    goto close_and_exit;
+  }
+  size_t buffer_size = bambu_get_max_frame_buffer_size(bambu_ctx);
+
+  pthread_t bambu_thread;
+  pthread_t rtp_server_thread;
+  thread_ctx_t thread_ctx = {
+    .rtp_port = rtp_port,
+    .bambu_ctx = bambu_ctx,
+    .rtp_server_ctx = rtp_server_ctx,
+    .rtp_server_callbacks = {
+      .callback_ctx = &thread_ctx,
+      .fill_image_buffer = copy_image_buffer,
+    },
+    .image_buffer = malloc(buffer_size),
+    .image_buffer_size_max = buffer_size,
+    .image_size = 0,
+    .image_buffer_mutex = PTHREAD_MUTEX_INITIALIZER,
+  };
+
+  if (thread_ctx.image_buffer == NULL) {
+    fprintf(stderr, "Error allocating shared buffer: %s\n", strerror(errno));
+    res = -errno;
+    goto close_and_exit;
+  }
+
+  res = pthread_create(&bambu_thread, NULL, &bambu_routine, &thread_ctx);
+  if (res != 0) {
+    fprintf(stderr, "Error creating bambu thread\n");
+    goto close_and_exit;
+  }
+
+  // TODO: Ensure the image buffer contains real image data before kicking off
+  // the RTP server thread.
+
+  res = pthread_create(&rtp_server_thread, NULL,
+                       &rtp_server_routine, &thread_ctx);
+  if (res != 0) {
+    fprintf(stderr, "Error creating RTP server thread\n");
+    goto close_and_exit;
+  }
+
+  res = pthread_join(rtp_server_thread, NULL);
+  if (res != 0) {
+    fprintf(stderr, "Error joining RTP server thread\n");
+    goto close_and_exit;
+  }
+
+  res = pthread_join(bambu_thread, NULL);
+  if (res != 0) {
+    fprintf(stderr, "Error joining bambu thread\n");
+    goto close_and_exit;
+  }
+
+
+close_and_exit:
+  if (rtp_server_ctx) rtp_server_free_ctx(rtp_server_ctx);
+  if (bambu_ctx) bambu_free_ctx(bambu_ctx);
+  if (thread_ctx.image_buffer) free(thread_ctx.image_buffer);
+  return res;
 }

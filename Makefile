@@ -6,19 +6,21 @@ CFLAGS := -g -DDEBUG
 endif
 
 LDFLAGS := \
-	-lBambuSource -L$(PLUGIN_PATH) -Wl,-rpath=$(PLUGIN_PATH) \
+	-L$(PLUGIN_PATH) \
+	-Wl,-rpath=$(PLUGIN_PATH) \
+
+LDLIBS := \
+	-lBambuSource \
 	-lavcodec \
 	-lavformat \
 	-lavutil \
 	-lpthread \
 
 OBJECTS := \
-	bambucam.o \
-	main.o \
+	bambu.o \
 	rtp_server.o \
 
 bambucam: $(OBJECTS)
-	$(CC) -o $@ $^ $(LDFLAGS)
 
 .PHONY: clean
 clean:
