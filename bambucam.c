@@ -9,15 +9,15 @@
 
 typedef struct {
   // User provided arguments needed within threads.
-  int rtp_port;
+  int server_port;
 
-  // The contexts used by both the Bambu and RTP server threads.
+  // The contexts used by both the Bambu and server threads.
   bambu_ctx_t bambu_ctx;
   server_ctx_t server_ctx;
   server_callbacks_t server_callbacks;
 
   // An image frame buffer shared by both threads. The Bambu thread
-  // populates it and the RTP server thread consumes it.
+  // populates it and the server thread consumes it.
   uint8_t* image_buffer;
   size_t image_buffer_size_max;
   size_t image_size;
@@ -87,25 +87,25 @@ static void* server_routine(void* ctx) {
   size_t buffer_size = bambu_get_max_frame_buffer_size(bambu_ctx);
 
   int res = server_start(server_ctx,
-                         thread_ctx->rtp_port,
+                         thread_ctx->server_port,
                          &thread_ctx->server_callbacks,
                          width, height, fps, buffer_size);
   if (res < 0) {
-    fprintf(stderr, "Error running RTP server\n");
+    fprintf(stderr, "Error running server\n");
   }
   return NULL;
 }
 
 int main(int argc, char** argv) {
   if (argc != 5) {
-    fprintf(stderr, "Usage: %s <ip> <device> <passcode> <rtp-port>\n", argv[0]);
+    fprintf(stderr, "Usage: %s <ip> <device> <passcode> <port>\n", argv[0]);
     return -1;
   }
 
   char* ip = argv[1];
   char* device = argv[2];
   char* passcode = argv[3];
-  int rtp_port = atoi(argv[4]);
+  int server_port = atoi(argv[4]);
 
   bambu_ctx_t bambu_ctx = NULL;
   server_ctx_t server_ctx = NULL;
@@ -119,7 +119,7 @@ int main(int argc, char** argv) {
 
   res = server_alloc_ctx(&server_ctx);
   if (res < 0) {
-    fprintf(stderr, "Error allocating RTP server\n");
+    fprintf(stderr, "Error allocating server\n");
     goto close_and_exit;
   }
 
@@ -133,7 +133,7 @@ int main(int argc, char** argv) {
   pthread_t bambu_thread;
   pthread_t server_thread;
   thread_ctx_t thread_ctx = {
-    .rtp_port = rtp_port,
+    .server_port = server_port,
     .bambu_ctx = bambu_ctx,
     .server_ctx = server_ctx,
     .server_callbacks = {
@@ -159,18 +159,18 @@ int main(int argc, char** argv) {
   }
 
   // TODO: Ensure the image buffer contains real image data before kicking off
-  // the RTP server thread.
+  // the server thread.
 
   res = pthread_create(&server_thread, NULL,
                        &server_routine, &thread_ctx);
   if (res != 0) {
-    fprintf(stderr, "Error creating RTP server thread\n");
+    fprintf(stderr, "Error creating server thread\n");
     goto close_and_exit;
   }
 
   res = pthread_join(server_thread, NULL);
   if (res != 0) {
-    fprintf(stderr, "Error joining RTP server thread\n");
+    fprintf(stderr, "Error joining server thread\n");
     goto close_and_exit;
   }
 
