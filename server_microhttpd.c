@@ -18,12 +18,16 @@
 
 // Internal bookkeeping state for the HTTP server.
 typedef struct {
-  // Image buffer and its max size (as allocated by this file).
-  uint8_t* image_buffer;
-  size_t image_buffer_size;
+  // Expected frames per second. Used to calculate how long to sleep before
+  // requesting a new frame using the above callback function.
+  int fps;
 
   // Pointer to the server callbacks to use when creating an HTTP response.
   server_callbacks_t* callbacks;
+
+  // Image buffer and its max size (as allocated by this file).
+  uint8_t* image_buffer;
+  size_t image_buffer_size;
 
   // Frame counter to know when serving the first frame and logging.
   ssize_t frame_i;
@@ -64,7 +68,8 @@ static ssize_t response_callback(void* ctx, uint64_t pos,
                                  char* buf, size_t max) {
   ctx_internal_t* ctx_internal = (ctx_internal_t*) ctx;
 
-  // If
+  // A negative starting position means we need to fetch a new frame, write the
+  // multipart boundary, then start sending new data (possibly chunked).
   if (ctx_internal->frame_start_pos < 0) {
     ctx_internal->frame_size = ctx_internal->callbacks->fill_image_buffer(
         ctx_internal->callbacks->callback_ctx,
@@ -75,9 +80,11 @@ static ssize_t response_callback(void* ctx, uint64_t pos,
       return -1;
     }
 
+#ifdef DEBUG
     fprintf(stderr, "Frame #%ld (%ld bytes)\n",
             ctx_internal->frame_i, ctx_internal->frame_size);
-    sleep(1);  // TODO: Figure out where to add this.
+#endif
+
     int res = snprintf(buf, max,
                        "%s"  // Special case for first frame.
                        "Content-Type: image/jpeg\r\n"
@@ -93,6 +100,7 @@ static ssize_t response_callback(void* ctx, uint64_t pos,
     int res = snprintf(buf, max, "\r\n--%s\r\n", BOUNDARY);
     ctx_internal->frame_start_pos = -1;
     ctx_internal->frame_i++;
+    usleep(1000 * 1000 / ctx_internal->fps);
     return res;
   }
 
@@ -157,6 +165,7 @@ int server_start(server_ctx_t ctx,
                  int port, server_callbacks_t* callbacks,
                  int width, int height, int fps, size_t buffer_size) {
   ctx_internal_t* ctx_internal = (ctx_internal_t*) ctx;
+  ctx_internal->fps = fps;
   ctx_internal->callbacks = callbacks;
   ctx_internal->image_buffer_size = buffer_size;
   ctx_internal->image_buffer = malloc(ctx_internal->image_buffer_size);
@@ -165,7 +174,14 @@ int server_start(server_ctx_t ctx,
     return -errno;
   }
 
+  // To avoid every connection racing to fill the same image buffer, allow only
+  // a single connection.
+  //
+  // TODO: Redesign how the buffer is used to support multiple connections.
   enum MHD_FLAG flags = MHD_USE_EPOLL_INTERNAL_THREAD | MHD_USE_ERROR_LOG;
+#ifdef DEBUG
+  flags |= MHD_USE_DEBUG;
+#endif
   struct MHD_Daemon* daemon = MHD_start_daemon(flags, port,
                                                NULL, NULL,  // Accept all IPs.
                                                &default_handler, ctx,
@@ -176,15 +192,17 @@ int server_start(server_ctx_t ctx,
     return -1;
   }
 
-  fprintf(stderr, "Serving on http://localhost:%d/\n", port);
+  fprintf(stderr, "Serving video stream at: http://localhost:%d/\n", port);
 
   while (1) {
     sleep(5);
     const union MHD_DaemonInfo* info =
       MHD_get_daemon_info(daemon, MHD_DAEMON_INFO_CURRENT_CONNECTIONS);
     if (info) {
+#ifdef DEBUG
       fprintf(stderr, "Number of active connections: %d\n",
               info->num_connections);
+#endif
     } else {
       fprintf(stderr, "Error fetching MHD daemon info\n");
     }
