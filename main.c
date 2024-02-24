@@ -37,10 +37,10 @@ static size_t copy_image_buffer(void* callback_ctx,
   }
 
   pthread_mutex_lock(&thread_ctx->image_buffer_mutex);
-  memcpy(buffer, thread_ctx->image_buffer, thread_ctx->image_size);
+  size_t image_size = thread_ctx->image_size;
+  memcpy(buffer, thread_ctx->image_buffer, image_size);
   pthread_mutex_unlock(&thread_ctx->image_buffer_mutex);
-
-  return thread_ctx->image_size;
+  return image_size;
 }
 
 
