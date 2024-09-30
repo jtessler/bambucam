@@ -82,6 +82,11 @@ static ssize_t response_callback(void* ctx, uint64_t pos,
       fprintf(stderr, "Error getting frame #%ld\n", ctx_internal->frame_i);
       return -1;
     }
+    if (ctx_internal->frame_size == 0) {
+      fprintf(stderr, "Received empty frame, skipping\n");
+      usleep(1000 * 1000 / ctx_internal->fps);
+      return 0;
+    }
 
 #ifdef DEBUG
     fprintf(stderr, "Frame #%ld (%ld bytes)\n",

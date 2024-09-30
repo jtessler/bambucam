@@ -183,6 +183,7 @@ int server_start(server_ctx_t ctx,
   // TODO: Wait for a client connection before writing any data and support
   // more than one connection.
   callbacks->on_client_change(callbacks->callback_ctx, 1);
+  sleep(3);  // Give time for frames to start arriving (TODO: fix this).
 
   //
   // Initialize the many many FFmpeg objects needed to produce a video stream.
