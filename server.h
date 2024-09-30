@@ -26,6 +26,10 @@ typedef struct {
   // or if max_size is smaller than the amount data needed to copy.
   size_t (*fill_image_buffer)(void* callback_ctx,
                               uint8_t* buffer, size_t max_size);
+
+  // Called whenever a client connects or disconnects from the server. The
+  // number of active connections is passed as an argument.
+  void (*on_client_change)(void* callback_ctx, size_t client_count);
 } server_callbacks_t;
 
 // Starts the server at the given port with the given video stream details.

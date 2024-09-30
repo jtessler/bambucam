@@ -180,6 +180,10 @@ int server_start(server_ctx_t ctx,
   av_log_set_level(AV_LOG_DEBUG);
 #endif
 
+  // TODO: Wait for a client connection before writing any data and support
+  // more than one connection.
+  callbacks->on_client_change(callbacks->callback_ctx, 1);
+
   //
   // Initialize the many many FFmpeg objects needed to produce a video stream.
   //
@@ -364,6 +368,8 @@ int server_start(server_ctx_t ctx,
     fprintf(stderr, "Error writing output trailer: %s\n", av_err2str(res));
     return res;
   }
+
+  callbacks->on_client_change(callbacks->callback_ctx, 0);
 
   return 0;
 }

@@ -96,6 +96,10 @@ static void* server_routine(void* ctx) {
   return NULL;
 }
 
+static void on_client_change(void* callback_ctx, size_t client_count) {
+  fprintf(stderr, "Number of clients changed to: %zu\n", client_count);
+}
+
 int main(int argc, char** argv) {
   if (argc != 5) {
     fprintf(stderr, "Usage: %s <ip> <device> <passcode> <port>\n", argv[0]);
@@ -139,6 +143,7 @@ int main(int argc, char** argv) {
     .server_callbacks = {
       .callback_ctx = &thread_ctx,
       .fill_image_buffer = copy_image_buffer,
+      .on_client_change = on_client_change,
     },
     .image_buffer = malloc(buffer_size),
     .image_buffer_size_max = buffer_size,

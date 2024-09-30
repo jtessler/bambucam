@@ -42,6 +42,9 @@ typedef struct {
 
   // Current frame's size (always less than or equal to image_buffer_size).
   ssize_t frame_size;
+
+  // Number of active client connections.
+  size_t num_connections;
 } ctx_internal_t;
 
 int server_alloc_ctx(server_ctx_t* ctx) {
@@ -161,10 +164,28 @@ static enum MHD_Result default_handler(void* ctx,
   return res;
 }
 
+static void on_connection_change(void* ctx, struct MHD_Connection *connection,
+                                 void** socket_context,
+                                 enum MHD_ConnectionNotificationCode code) {
+  ctx_internal_t* ctx_internal = (ctx_internal_t*) ctx;
+  switch (code) {
+  case MHD_CONNECTION_NOTIFY_STARTED:
+    ctx_internal->num_connections++;
+    break;
+  case MHD_CONNECTION_NOTIFY_CLOSED:
+    ctx_internal->num_connections--;
+    break;
+  }
+  ctx_internal->callbacks->on_client_change(
+      ctx_internal->callbacks->callback_ctx,
+      ctx_internal->num_connections);
+}
+
 int server_start(server_ctx_t ctx,
                  int port, server_callbacks_t* callbacks,
                  int width, int height, int fps, size_t buffer_size) {
   ctx_internal_t* ctx_internal = (ctx_internal_t*) ctx;
+  ctx_internal->num_connections = 0;
   ctx_internal->fps = fps;
   ctx_internal->callbacks = callbacks;
   ctx_internal->image_buffer_size = buffer_size;
@@ -186,6 +207,8 @@ int server_start(server_ctx_t ctx,
                                                NULL, NULL,  // Accept all IPs.
                                                &default_handler, ctx,
                                                MHD_OPTION_CONNECTION_LIMIT, 1,
+                                               MHD_OPTION_NOTIFY_CONNECTION,
+                                               on_connection_change, ctx,
                                                MHD_OPTION_END);
   if (!daemon) {
     fprintf(stderr, "Error starting MHD daemon\n");
@@ -196,16 +219,10 @@ int server_start(server_ctx_t ctx,
 
   while (1) {
     sleep(5);
-    const union MHD_DaemonInfo* info =
-      MHD_get_daemon_info(daemon, MHD_DAEMON_INFO_CURRENT_CONNECTIONS);
-    if (info) {
 #ifdef DEBUG
-      fprintf(stderr, "Number of active connections: %d\n",
-              info->num_connections);
+    fprintf(stderr, "Number of active connections: %d\n",
+            ctx_internal->num_connections);
 #endif
-    } else {
-      fprintf(stderr, "Error fetching MHD daemon info\n");
-    }
   }
 
   MHD_stop_daemon(daemon);
