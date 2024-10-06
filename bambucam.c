@@ -1,6 +1,5 @@
 #include "bambu.h"
 #include "server.h"
-#include <errno.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -13,19 +12,14 @@ typedef struct {
   char* ip;
   char* device;
   char* passcode;
-  int server_port;
 
-  // The contexts used by both the Bambu and server threads.
+  // Contexts accessed by the Bambu thread.
   bambu_ctx_t bambu_ctx;
   server_ctx_t server_ctx;
-  server_callbacks_t server_callbacks;
 
-  // An image frame buffer shared by both threads. The Bambu thread
-  // populates it and the server thread consumes it.
-  uint8_t* image_buffer;
+  // Maximum possible size (in bytes) of any frame. Used to allocate enough
+  // memory for image buffers.
   size_t image_buffer_size_max;
-  size_t image_size;
-  pthread_mutex_t image_buffer_mutex;  // Ensure no concurrent access.
 
   // Determines whether to open a connection to the Bambu device and start
   // grabbing frames, e.g., when there is at least one open connection.
@@ -34,29 +28,11 @@ typedef struct {
   pthread_mutex_t run_bambu_mutex;
 } thread_ctx_t;
 
-// Simply copies the image buffer from the thread context into the given buffer
-// after acquiring the mutex lock.
-static size_t copy_image_buffer(void* callback_ctx,
-                         uint8_t* buffer, size_t buffer_size_max) {
-  thread_ctx_t* thread_ctx = (thread_ctx_t*) callback_ctx;
-
-  if (buffer_size_max < thread_ctx->image_buffer_size_max) {
-    fprintf(stderr, "Destination image buffer is too small: %ld < %ld\n",
-            buffer_size_max, thread_ctx->image_buffer_size_max);
-    return -1;
-  }
-
-  pthread_mutex_lock(&thread_ctx->image_buffer_mutex);
-  size_t image_size = thread_ctx->image_size;
-  memcpy(buffer, thread_ctx->image_buffer, image_size);
-  pthread_mutex_unlock(&thread_ctx->image_buffer_mutex);
-  return image_size;
-}
-
 
 static void* bambu_routine(void* ctx) {
   thread_ctx_t* thread_ctx = (thread_ctx_t*) ctx;
   bambu_ctx_t bambu_ctx = thread_ctx->bambu_ctx;
+  server_ctx_t server_ctx = thread_ctx->server_ctx;
 
   while (1) {
     pthread_mutex_lock(&thread_ctx->run_bambu_mutex);
@@ -96,11 +72,7 @@ static void* bambu_routine(void* ctx) {
         return NULL;
       }
 
-      pthread_mutex_lock(&thread_ctx->image_buffer_mutex);
-      memcpy(thread_ctx->image_buffer, bambu_buffer, bambu_buffer_size);
-      thread_ctx->image_size = bambu_buffer_size;
-      pthread_mutex_unlock(&thread_ctx->image_buffer_mutex);
-
+      server_send_image(server_ctx, bambu_buffer, bambu_buffer_size);
       usleep(1000 * 1000 / fps);  // Wait for the next frame tick.
     }
     bambu_disconnect(bambu_ctx);
@@ -109,28 +81,13 @@ static void* bambu_routine(void* ctx) {
   return NULL;
 }
 
-static void* server_routine(void* ctx) {
-  thread_ctx_t* thread_ctx = (thread_ctx_t*) ctx;
-  bambu_ctx_t bambu_ctx = thread_ctx->bambu_ctx;
-  server_ctx_t server_ctx = thread_ctx->server_ctx;
-
-  int fps = bambu_get_framerate(bambu_ctx);
-  int width = bambu_get_frame_width(bambu_ctx);
-  int height = bambu_get_frame_height(bambu_ctx);
-  size_t buffer_size = bambu_get_max_frame_buffer_size(bambu_ctx);
-
-  int res = server_start(server_ctx,
-                         thread_ctx->server_port,
-                         &thread_ctx->server_callbacks,
-                         width, height, fps, buffer_size);
-  if (res < 0) {
-    fprintf(stderr, "Error running server\n");
-  }
-  return NULL;
-}
-
 static void on_client_change(void* callback_ctx, size_t client_count) {
   thread_ctx_t* thread_ctx = (thread_ctx_t*) callback_ctx;
+
+#ifdef DEBUG
+  fprintf(stderr, "Number of clients changed to: %ld\n", client_count);
+#endif
+
   pthread_mutex_lock(&thread_ctx->run_bambu_mutex);
   thread_ctx->run_bambu = client_count > 0;
   if (thread_ctx->run_bambu) {
@@ -180,33 +137,22 @@ int main(int argc, char** argv) {
 
   size_t buffer_size = bambu_get_max_frame_buffer_size(bambu_ctx);
   pthread_t bambu_thread;
-  pthread_t server_thread;
   thread_ctx_t thread_ctx = {
     .ip = ip,
     .device = device,
     .passcode = passcode,
-    .server_port = server_port,
     .bambu_ctx = bambu_ctx,
     .server_ctx = server_ctx,
-    .server_callbacks = {
-      .callback_ctx = &thread_ctx,
-      .fill_image_buffer = copy_image_buffer,
-      .on_client_change = on_client_change,
-    },
-    .image_buffer = malloc(buffer_size),
     .image_buffer_size_max = buffer_size,
-    .image_size = 0,
-    .image_buffer_mutex = PTHREAD_MUTEX_INITIALIZER,
     .run_bambu = false,
     .run_bambu_cond = PTHREAD_COND_INITIALIZER,
     .run_bambu_mutex = PTHREAD_MUTEX_INITIALIZER,
   };
 
-  if (thread_ctx.image_buffer == NULL) {
-    fprintf(stderr, "Error allocating shared buffer: %s\n", strerror(errno));
-    res = -errno;
-    goto close_and_exit;
-  }
+  server_callbacks_t server_callbacks = {
+    .callback_ctx = &thread_ctx,
+    .on_client_change = on_client_change,
+  };
 
   res = pthread_create(&bambu_thread, NULL, &bambu_routine, &thread_ctx);
   if (res != 0) {
@@ -214,19 +160,13 @@ int main(int argc, char** argv) {
     goto close_and_exit;
   }
 
-  // TODO: Ensure the image buffer contains real image data before kicking off
-  // the server thread.
-
-  res = pthread_create(&server_thread, NULL,
-                       &server_routine, &thread_ctx);
-  if (res != 0) {
-    fprintf(stderr, "Error creating server thread\n");
-    goto close_and_exit;
-  }
-
-  res = pthread_join(server_thread, NULL);
-  if (res != 0) {
-    fprintf(stderr, "Error joining server thread\n");
+  int fps = bambu_get_framerate(bambu_ctx);
+  int width = bambu_get_frame_width(bambu_ctx);
+  int height = bambu_get_frame_height(bambu_ctx);
+  res = server_start(server_ctx, server_port, &server_callbacks, width, height,
+                     fps, buffer_size);
+  if (res < 0) {
+    fprintf(stderr, "Error running server\n");
     goto close_and_exit;
   }
 
@@ -236,10 +176,14 @@ int main(int argc, char** argv) {
     goto close_and_exit;
   }
 
-
 close_and_exit:
-  if (server_ctx) server_free_ctx(server_ctx);
-  if (bambu_ctx) bambu_free_ctx(bambu_ctx);
-  if (thread_ctx.image_buffer) free(thread_ctx.image_buffer);
+  if (server_ctx) {
+    server_stop(server_ctx);
+    server_free_ctx(server_ctx);
+  }
+  if (bambu_ctx) {
+    bambu_disconnect(bambu_ctx);
+    bambu_free_ctx(bambu_ctx);
+  }
   return res;
 }
