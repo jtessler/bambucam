@@ -33,6 +33,7 @@ $ sudo apt install \
     libavcodec-dev \
     libavformat-dev \
     libavutil-dev \
+    libjpeg-dev \
     libmicrohttpd-dev
 ```
 
@@ -54,6 +55,13 @@ Use `DEBUG` to add more verbose logging and build debug symbols.
 
 ```
 $ make DEBUG=1 -j
+```
+
+Use `BAMBU_FAKE` to use a fake camera implementation to test without an actual
+printer hardware. All device arguments are obviously ignored in this mode.
+
+```
+$ make BAMBU_FAKE=1 -j
 ```
 
 Use `SERVER` to select the video streaming server implementation. More details
