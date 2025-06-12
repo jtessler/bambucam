@@ -4,9 +4,14 @@ DEBUG ?=
 # Use a fake camera implementation for testing (if set).
 BAMBU_FAKE ?=
 
+USER_CONFIG_DIR ?= $(HOME)/.config
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+	USER_CONFIG_DIR := '$(HOME)/Library/Application Support'
+endif
 # Path to the Bambu Studio plugin directory. Assumes it is installed and ran at
 # least once to download the expected plugins.
-PLUGIN_PATH ?= $(HOME)/.config/BambuStudio/plugins
+PLUGIN_PATH := $(USER_CONFIG_DIR)/BambuStudio/plugins
 
 # Which server implementation to use, including:
 # - HTTP: Multipart JPEG stream using microhttpd
