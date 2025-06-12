@@ -22,27 +22,29 @@ ifdef DEBUG
 CFLAGS := -g -DDEBUG
 endif
 
-LDFLAGS := \
-	-L$(PLUGIN_PATH) \
-	-Wl,-rpath=$(PLUGIN_PATH) \
-
 LDLIBS := -lpthread
 
 OBJECTS :=
 
 ifdef BAMBU_FAKE
-	LDLIBS  += -ljpeg
+	CFLAGS += $(shell pkg-config --cflags libjpeg)
+	LDLIBS  += $(shell pkg-config --libs libjpeg)
 	OBJECTS += bambu_fake.o
 else
+	LDFLAGS := \
+		-L$(PLUGIN_PATH) \
+		-Wl,-rpath,$(PLUGIN_PATH)
 	LDLIBS  += -lBambuSource
 	OBJECTS += bambu.o
 endif
 
 ifeq ($(SERVER), HTTP)
-	LDLIBS  += -lmicrohttpd
+	CFLAGS += $(shell pkg-config --cflags libmicrohttpd)
+	LDLIBS  += $(shell pkg-config --libs libmicrohttpd)
 	OBJECTS += server_microhttpd.o
 else
-	LDLIBS  += -lavcodec -lavformat -lavutil
+	CFLAGS += $(shell pkg-config --cflags libavcodec libavformat libavutil)
+	LDLIBS  += $(shell pkg-config --libs libavcodec libavformat libavutil)
 	OBJECTS += server_ffmpeg_rtp.o
 endif
 
