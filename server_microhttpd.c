@@ -275,7 +275,10 @@ int server_start(server_ctx_t ctx,
   }
 
   enum MHD_FLAG flags = MHD_NO_FLAG;
-  flags |= MHD_USE_EPOLL_INTERNAL_THREAD;
+  // Not supported on Darwin? Maybe use poll or just not bother?
+  // flags |= MHD_USE_EPOLL_INTERNAL_THREAD;
+  // I assume there's some synchronization expectation that we want this. Looks like the API changed so it's not per polling method.
+  flags |= MHD_USE_INTERNAL_POLLING_THREAD;
   flags |= MHD_ALLOW_SUSPEND_RESUME;
   flags |= MHD_USE_ERROR_LOG;
 #ifdef DEBUG
