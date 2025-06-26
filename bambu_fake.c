@@ -45,7 +45,7 @@ int generate_jpeg(int width, int height,
   jpeg_start_compress(&cinfo, TRUE);
 
   // Allocate memory for a single row of image data.
-  row_stride = width * 3; // width * number of components
+  row_stride = width * COLOR_COUNT; // width * number of components
   unsigned char *row = (unsigned char *)malloc(row_stride);
   if (!row) {
     fprintf(stderr, "Error allocating image row: %s\n", strerror(errno));
@@ -58,9 +58,9 @@ int generate_jpeg(int width, int height,
   while (cinfo.next_scanline < cinfo.image_height) {
     // Fill the row with the specified color.
     for (int x = 0; x < width; x++) {
-      row[x * 3 + 0] = red;   // Red
-      row[x * 3 + 1] = green; // Green
-      row[x * 3 + 2] = blue;  // Blue
+      row[x * COLOR_COUNT + 0] = red;   // Red
+      row[x * COLOR_COUNT + 1] = green; // Green
+      row[x * COLOR_COUNT + 2] = blue;  // Blue
     }
     // Write the row to the JPEG file.
     jpeg_write_scanlines(&cinfo, row_pointer, 1);
