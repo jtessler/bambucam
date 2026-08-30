@@ -135,7 +135,13 @@ int main(int argc, char** argv) {
     goto close_and_exit;
   }
 
-  size_t buffer_size = bambu_get_max_frame_buffer_size(bambu_ctx);
+  // The reported max buffer size can underestimate the actual frame size
+  // on some printers (observed on a Bambu Lab A1: reported 204800 bytes,
+  // actual frame 235135 bytes). When that happens the bambu_routine thread
+  // logs "Destination image buffer is too small" and exits, so the HTTP
+  // client's connection stays open forever with no data. Doubling the
+  // reported size as a safety margin fixed it in testing.
+  size_t buffer_size = bambu_get_max_frame_buffer_size(bambu_ctx) * 2;
   pthread_t bambu_thread;
   thread_ctx_t thread_ctx = {
     .ip = ip,
