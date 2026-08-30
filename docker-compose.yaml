@@ -1,0 +1,16 @@
+version: "3.8"
+
+services:
+  bambucam:
+    image: dockersilas/bambucam:1.0.0
+    container_name: bambucam
+
+    ports:
+      - "8082:8082" # the port number mapping where the video stream is serviced
+
+    env_file:
+      - .env
+
+    restart: no
+
+  
